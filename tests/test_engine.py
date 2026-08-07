@@ -90,6 +90,21 @@ def test_recognize_handles_large_stderr_without_hanging():
     assert result.backend == "cpu"
 
 
+def test_recognize_handles_non_ascii_utf8_output():
+    # Regression test: subprocess.run(text=True) with no explicit encoding
+    # decodes with the locale default (cp1252 on Windows), not UTF-8. Real
+    # recognized text from arboocr_demo (always UTF-8) can contain a byte
+    # cp1252 has no mapping for, raising UnicodeDecodeError inside
+    # subprocess's internal reader thread - silently swallowed there, only
+    # visible here as stdout being None despite returncode 0. Engine must
+    # pass encoding="utf-8" explicitly.
+    engine = Engine(bin_path=fake_bin(["--nonascii"]))
+
+    result = engine.recognize("/some/page.jpg")
+
+    assert result.lines[0].text == "Ёlka — café"
+
+
 def test_recognize_throws_on_unparseable_output():
     engine = Engine(bin_path=fake_bin(["--garbage"]))
 

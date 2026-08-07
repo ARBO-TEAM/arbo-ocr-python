@@ -111,11 +111,41 @@ image with a `--json` flag, parsing the JSON result.
 
 ## Benchmark
 
-Wrapper-overhead benchmarks (subprocess spawn cost on top of
-`arboocr_demo`'s own reported time) haven't been run for this package yet.
-Accuracy is identical to the other language wrappers (PHP, Go, Rust, …),
-since all of them call the same underlying `arboocr_demo` binary — only the
-per-call wrapper overhead could differ, and that hasn't been measured here.
+`arbo-ocr-python` was compared against arbo-ocr-php, arbo-ocr-go, and
+arbo-ocr-rust on a 40-image SROIE sample — all four call the identical
+`arboocr_demo` binary, so accuracy is the same across all four; this
+measures wrapper overhead only (subprocess spawn − arboocr_demo's own
+reported time):
+
+| Size | arbo-php | arbo-go | arbo-rust | arbo-python |
+|--------|----------:|---------:|-----------:|-------------:|
+| tiny | 192 ms | 138 ms | 131 ms | 203 ms |
+| small | 234 ms | 184 ms | 174 ms | 249 ms |
+| medium | 302 ms | 253 ms | 245 ms | 321 ms |
+
+Same accuracy across all four (83.7/85.3/85.5% tiny/small/medium). Go and
+Rust track each other closely (both compiled, no interpreter startup);
+PHP and Python both pay their interpreter's own startup cost on top of the
+same `arboocr_demo` spawn, landing in the same ballpark as each other
+(Python's is slightly higher — its `import arbo_ocr` pulls in a few more
+stdlib modules than PHP's autoloader touches per call).
+
+Two real issues surfaced by this benchmark, both fixed:
+- **UTF-8 decode crash**: `subprocess.run(text=True)` with no explicit
+  `encoding` decodes with the Windows locale default (`cp1252`), not UTF-8.
+  Some recognized text hits a byte `cp1252` has no mapping for, raising
+  `UnicodeDecodeError` inside `subprocess`'s internal reader thread —
+  silently swallowed there, surfacing only as `stdout`/`stderr` being `None`
+  despite `returncode == 0`. Fixed by passing `encoding="utf-8"` explicitly
+  in `Engine.recognize()`.
+- **Avoidable import cost**: `installer.py` imported `urllib.request`,
+  `zipfile`, and `tarfile` at module level, even though `engine.py` only
+  ever needs `detect_platform()`/`default_bin_path()` from that module.
+  Since those are heavy stdlib imports (`urllib.request` alone pulls in
+  `ssl`, `http.client`, etc.), every `Engine` call paid ~50ms of interpreter
+  startup it never used. Moved them into the functions that actually need
+  them (`download_and_extract()`, `main()`) — cut measured overhead by
+  ~35-40ms per call across all three sizes.
 
 ## Development
 

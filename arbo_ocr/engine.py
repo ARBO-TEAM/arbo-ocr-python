@@ -55,8 +55,13 @@ class Engine:
         # internally, which reads stdout and stderr concurrently (via threads on
         # Windows, select() on POSIX) — unlike PHP's proc_open, there's no risk
         # of deadlocking on a filled pipe buffer here, so no stderr-to-tempfile
-        # workaround is needed.
-        result = subprocess.run(argv, capture_output=True, text=True)
+        # workaround is needed. encoding must be explicit: text=True alone
+        # decodes with the locale default (cp1252 on Windows), and arboocr_demo
+        # always emits UTF-8 - some recognized text hits a byte cp1252 has no
+        # mapping for, raising UnicodeDecodeError inside subprocess's internal
+        # background reader thread, silently swallowed there, surfacing here
+        # only as stdout/stderr being None despite returncode 0.
+        result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
 
         if result.returncode != 0:
             raise OcrError(

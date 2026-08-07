@@ -10,14 +10,17 @@ functions here — download_and_extract, ensure_installed — do raise; only
 from __future__ import annotations
 
 import platform as _platform
-import shutil
-import sys
-import tarfile
-import tempfile
-import urllib.request
-import zipfile
 from pathlib import Path
 from typing import Optional
+
+# shutil/tarfile/tempfile/urllib.request/zipfile are imported lazily inside
+# download_and_extract()/main() below, not here: engine.py imports this
+# module just for detect_platform()/default_bin_path() on every recognize()
+# call, and those heavy stdlib modules (urllib.request alone pulls in ssl,
+# http.client, etc.) add ~50ms of avoidable interpreter startup to every
+# subprocess spawn if imported eagerly - measured via bare `python -c
+# "import arbo_ocr"` timing during benchmarking. Only the explicit
+# `arbo-ocr-install` path actually needs them.
 
 REPO = "wafik/ArboOCR"
 PINNED_VERSION = "v0.1.0-php1"
@@ -73,6 +76,12 @@ def ensure_installed(platform_name: Optional[str] = None) -> Path:
 
 
 def download_and_extract(url: str, target_dir: Path, asset_name: str) -> None:
+    import shutil
+    import tarfile
+    import tempfile
+    import urllib.request
+    import zipfile
+
     target_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = ".zip" if asset_name.endswith(".zip") else ".tar.gz"
@@ -111,6 +120,8 @@ def _flatten_single_subdir(target_dir: Path) -> None:
 
 def main() -> None:
     """Entry point for the `arbo-ocr-install` console script."""
+    import sys
+
     try:
         path = ensure_installed()
         print(f"[arbo-ocr-python] Installed arboocr_demo at {path}")
