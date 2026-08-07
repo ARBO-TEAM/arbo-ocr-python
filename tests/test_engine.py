@@ -133,3 +133,48 @@ def test_flags_from_options_map_to_cli_flags():
     result = engine.recognize("/some/page.jpg")
 
     assert result.backend == "cpu"
+
+
+def test_v020_value_flags_map_to_cli_flags():
+    # arboOCR v0.2.0 accuracy flags + --log-level. Each is a separate
+    # "--flag" / "<value>" token pair, matching the pre-existing string-flag
+    # form (cxxopts accepts both "--flag value" and "--flag=value" for
+    # value-taking options; only bools are "=" -only).
+    engine = Engine(
+        bin_path=fake_bin(),
+        min_confidence=0.42,
+        rec_batch_num=12,
+        det_limit_side_len=1280,
+        log_level="warn",
+    )
+
+    flags = engine._flags_from_options()
+
+    for flag, value in (("--min-confidence", "0.42"), ("--rec-batch-num", "12"),
+                        ("--det-limit-side-len", "1280"), ("--log-level", "warn")):
+        assert flag in flags
+        assert flags[flags.index(flag) + 1] == value
+
+
+def test_word_boxes_flag_uses_single_token_form_and_parses_words():
+    # --word-boxes is a cxxopts bool, so it must go through _BOOL_FLAGS'
+    # "--flag=value" path like --angle/--cuda, not the "--flag value" path.
+    engine = Engine(bin_path=fake_bin(), word_boxes=True)
+
+    assert "--word-boxes=true" in engine._flags_from_options()
+    assert "--word-boxes" not in engine._flags_from_options()
+
+    result = engine.recognize("/some/page.jpg")
+
+    assert [w["text"] for w in result.lines[0].words] == ["hel", "lo"]
+    assert result.lines[0].words[0]["polygon"][0]["x"] == 1.0
+
+
+def test_words_defaults_to_empty_when_not_requested():
+    # arboOCR omits the "words" key entirely without --word-boxes; that is a
+    # normal successful result, not a parse failure.
+    engine = Engine(bin_path=fake_bin())
+
+    result = engine.recognize("/some/page.jpg")
+
+    assert result.lines[0].words == []

@@ -21,6 +21,19 @@ _STRING_FLAGS = {
     "cls_model_path": "cls-model",
     "rec_model_path": "rec-model",
     "dict_path": "dict",
+    # arboOCR v0.2.0. Without it the binary is silent on stderr; one of
+    # "debug" | "info" | "warn" | "error" (arboocr_demo rejects anything
+    # else with exit code 1).
+    "log_level": "log-level",
+}
+
+# Same "--flag <value>" emission as _STRING_FLAGS (str() handles the
+# conversion); kept separate only to document that these carry numbers.
+# All three arrived in arboOCR v0.2.0's accuracy-flag set.
+_NUMERIC_FLAGS = {
+    "min_confidence": "min-confidence",  # float — drop lines below this score, 0 disables
+    "rec_batch_num": "rec-batch-num",  # int — crops per recognition inference call
+    "det_limit_side_len": "det-limit-side-len",  # int — longest image side for detection resize
 }
 
 _BOOL_FLAGS = {
@@ -29,6 +42,10 @@ _BOOL_FLAGS = {
     "use_tensorrt": "tensorrt",
     "use_fp16": "fp16",
     "use_clahe": "clahe",
+    # arboOCR v0.2.0 — adds a "words" array (a polygon per word, per
+    # character for CJK) to every line in the JSON. Omitted entirely when
+    # not requested, so LineResult.words is [] by default.
+    "word_boxes": "word-boxes",
 }
 
 
@@ -63,6 +80,13 @@ class Engine:
         # only as stdout/stderr being None despite returncode 0.
         result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
 
+        # Deliberately "!= 0", not "== 1": arboOCR v0.2.0 added exit code 2
+        # for model-load / recognition failure, distinct from 1 (bad usage).
+        # The exact code is preserved on OcrError.exit_code for callers that
+        # want to tell the two apart. Note also that v0.2.0's arboocr_demo is
+        # silent on stderr unless --log-level is passed, so stderr may be
+        # empty even on a genuine failure — never treat stderr emptiness as
+        # success, only returncode.
         if result.returncode != 0:
             raise OcrError(
                 f"arboocr_demo exited with code {result.returncode}",
@@ -74,9 +98,10 @@ class Engine:
 
     def _flags_from_options(self) -> list[str]:
         argv: list[str] = []
-        for opt_key, cli_flag in _STRING_FLAGS.items():
-            if opt_key in self._options:
-                argv += [f"--{cli_flag}", str(self._options[opt_key])]
+        for mapping in (_STRING_FLAGS, _NUMERIC_FLAGS):
+            for opt_key, cli_flag in mapping.items():
+                if opt_key in self._options:
+                    argv += [f"--{cli_flag}", str(self._options[opt_key])]
         for opt_key, cli_flag in _BOOL_FLAGS.items():
             if opt_key in self._options:
                 # cxxopts only binds a bool flag's value via "=" — a bare

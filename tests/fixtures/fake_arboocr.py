@@ -34,15 +34,24 @@ if "--image" in args:
     if idx + 1 < len(args):
         image = args[idx + 1]
 
+line = {"text": text_field, "score": 0.9, "detScore": 0.8,
+        "polygon": [{"x": 1.0, "y": 2.0}]}
+
+# arboOCR v0.2.0: "words" is present in the JSON only when --word-boxes was
+# asked for, and Engine emits bool flags in the single-token "--flag=value"
+# form, so match on that exact token rather than a bare "--word-boxes".
+if "--word-boxes=true" in args:
+    line["words"] = [
+        {"text": "hel", "score": 0.95, "polygon": [{"x": 1.0, "y": 2.0}]},
+        {"text": "lo", "score": 0.85, "polygon": [{"x": 3.0, "y": 4.0}]},
+    ]
+
 import os
 payload = json.dumps({
     "backend": "cpu",
     "image": os.path.basename(image),
     "elapsedMs": 12.5,
-    "lines": [
-        {"text": text_field, "score": 0.9, "detScore": 0.8,
-         "polygon": [{"x": 1.0, "y": 2.0}]},
-    ],
+    "lines": [line],
 }, ensure_ascii=False)
 # Write raw UTF-8 bytes directly, bypassing sys.stdout's text-mode encoding
 # (cp1252 on a non-UTF-8 Windows console) - otherwise this script itself

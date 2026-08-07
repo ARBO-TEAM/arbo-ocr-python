@@ -23,7 +23,7 @@ from typing import Optional
 # `arbo-ocr-install` path actually needs them.
 
 REPO = "wafik/ArboOCR"
-PINNED_VERSION = "v0.1.0-php1"
+PINNED_VERSION = "v0.2.0"
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 

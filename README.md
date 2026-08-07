@@ -16,7 +16,7 @@ installing a wheel, so this package ships an explicit console script,
 `playwright install` uses). It downloads the matching arboOCR release
 binary (Windows or Linux, auto-detected) into `arbo_ocr/bin/<platform>/`.
 
-As of [`v0.1.0-php1`](https://github.com/wafik/ArboOCR/releases/tag/v0.1.0-php1),
+As of [`v0.2.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.2.0),
 this is the pinned release. If auto-download fails (offline install,
 unsupported OS), download a release manually from the
 [arboOCR releases page](https://github.com/wafik/ArboOCR/releases) and pass
@@ -73,6 +73,46 @@ on the auto-installed one:
 
 ```python
 engine = Engine(bin_path="/custom/path/to/arboocr_demo", models_dir="/path/to/models")
+```
+
+### Options
+
+Every `Engine(**options)` keyword maps to one `arboocr_demo` CLI flag.
+Anything not listed is ignored rather than passed through.
+
+| Option | Type | CLI flag | Notes |
+|---|---|---|---|
+| `models_dir` | str | `--models-dir` | folder of PP-OCRv6 ONNX files |
+| `ocr_version` | str | `--ocr-version` | default `PP-OCRv6` |
+| `model_type` | str | `--model-type` | `tiny` / `small` (default) / `medium` |
+| `det_model_path` | str | `--det-model` | override the detector file |
+| `cls_model_path` | str | `--cls-model` | override the classifier file |
+| `rec_model_path` | str | `--rec-model` | override the recognizer file |
+| `dict_path` | str | `--dict` | override the recognizer dictionary |
+| `use_angle_cls` | bool | `--angle` | 0°/180° orientation classification |
+| `use_cuda` | bool | `--cuda` | |
+| `use_tensorrt` | bool | `--tensorrt` | |
+| `use_fp16` | bool | `--fp16` | |
+| `use_clahe` | bool | `--clahe` | contrast pre-processing |
+| `min_confidence` | float | `--min-confidence` | *v0.2.0* — drop lines below this score; `0` disables (default 0.5) |
+| `rec_batch_num` | int | `--rec-batch-num` | *v0.2.0* — crops per recognition inference call (default 6) |
+| `det_limit_side_len` | int | `--det-limit-side-len` | *v0.2.0* — longest image side for detection resize (default 960) |
+| `word_boxes` | bool | `--word-boxes` | *v0.2.0* — also populate `line.words` |
+| `log_level` | str | `--log-level` | *v0.2.0* — `debug` / `info` / `warn` / `error`; the binary is silent on stderr without it |
+
+#### Word boxes
+
+With `word_boxes=True`, each line carries a `words` list — one entry per
+word (per character for CJK), each a plain dict with `text`, `score`, and
+`polygon`. Without it arboOCR omits the key entirely and `line.words` is `[]`:
+
+```python
+engine = Engine(models_dir="/path/to/models", word_boxes=True)
+result = engine.recognize("/path/to/receipt.jpg")
+
+for line in result.lines:
+    for word in line.words:
+        print(word["text"], word["score"], word["polygon"])
 ```
 
 ## Quick example (tiny model, fastest)
