@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import OcrError
@@ -7,12 +7,20 @@ from .exceptions import OcrError
 @dataclass(frozen=True)
 class LineResult:
     """One recognized text line. `polygon` is a list of {"x": float, "y": float}
-    points, in the order arboOCR reports them (clockwise from top-left-ish)."""
+    points, in the order arboOCR reports them (clockwise from top-left-ish).
+
+    `words` holds one {"text": str, "score": float, "polygon": [...]} dict per
+    word (per character for CJK), and is only populated when the Engine was
+    given `word_boxes=True` — arboOCR omits the JSON key entirely otherwise,
+    so an empty list is the normal, successful default. Kept as raw dicts for
+    the same reason `polygon` is: it mirrors the JSON one-to-one and needs no
+    extra result class."""
 
     text: str
     score: float
     det_score: float
     polygon: list[dict[str, float]]
+    words: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "LineResult":
@@ -21,6 +29,7 @@ class LineResult:
             score=float(data.get("score", 0.0)),
             det_score=float(data.get("detScore", 0.0)),
             polygon=data.get("polygon", []),
+            words=data.get("words") or [],
         )
 
 
