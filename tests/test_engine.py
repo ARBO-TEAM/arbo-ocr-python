@@ -178,3 +178,65 @@ def test_words_defaults_to_empty_when_not_requested():
     result = engine.recognize("/some/page.jpg")
 
     assert result.lines[0].words == []
+
+
+def test_model_download_options_emit_nothing_when_omitted():
+    # THE regression test for everyone currently on installer.PINNED_VERSION.
+    # That binary predates arboOCR's model auto-download and rejects an
+    # unknown flag with exit code 1 (usage error), so adding the
+    # `no_download` / `models_url` options must not change a single token of
+    # the command line for callers who don't ask for them. Asserting on the
+    # whole flag list, not just membership, is the point here — a default of
+    # e.g. no_download=False in Engine.__init__ would still emit
+    # "--no-download=false" and break every v0.2.0 user.
+    engine = Engine(bin_path=fake_bin(), models_dir="models", model_type="tiny")
+
+    flags = engine._flags_from_options()
+
+    assert flags == ["--models-dir", "models", "--model-type", "tiny"]
+
+    # And the same holds for a bare Engine with no options at all.
+    assert Engine(bin_path=fake_bin())._flags_from_options() == []
+
+
+def test_no_download_uses_single_token_bool_form():
+    # --no-download is a cxxopts bool, so it goes through _BOOL_FLAGS'
+    # "--flag=value" path like --angle/--cuda, not the "--flag value" path.
+    engine = Engine(bin_path=fake_bin(), no_download=True)
+
+    flags = engine._flags_from_options()
+
+    assert "--no-download=true" in flags
+    assert "--no-download" not in flags
+
+    # Explicitly asking for the opposite must still emit the flag, matching
+    # how every other bool option behaves.
+    assert "--no-download=false" in Engine(
+        bin_path=fake_bin(), no_download=False
+    )._flags_from_options()
+
+
+def test_models_url_maps_to_cli_flag():
+    # A value-taking option, so the "--flag" / "<value>" token-pair form.
+    url = "https://mirror.internal/arboocr/models/"
+    engine = Engine(bin_path=fake_bin(), models_url=url)
+
+    flags = engine._flags_from_options()
+
+    assert "--models-url" in flags
+    assert flags[flags.index("--models-url") + 1] == url
+
+
+def test_model_download_options_reach_the_binary_without_erroring():
+    # Mirrors test_flags_from_options_map_to_cli_flags: the fake binary only
+    # reads --image, so this just confirms the new flags are well-formed
+    # enough to travel through subprocess and back.
+    engine = Engine(
+        bin_path=fake_bin(),
+        no_download=True,
+        models_url="https://mirror.internal/arboocr/models/",
+    )
+
+    result = engine.recognize("/some/page.jpg")
+
+    assert result.backend == "cpu"

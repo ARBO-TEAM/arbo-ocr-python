@@ -22,9 +22,18 @@ unsupported OS), download a release manually from the
 [arboOCR releases page](https://github.com/wafik/ArboOCR/releases) and pass
 `bin_path` explicitly (see below).
 
-You also need the OCR models — arboOCR does not bundle them. See
-[Models](#models) below for exactly which files each `model_type` needs and
-where to get them.
+You also need the OCR models — arboOCR does not bundle them, and the
+currently pinned `v0.2.0` binary cannot fetch them either, so you must put
+them somewhere and point `models_dir` at them. See [Models](#models) below
+for exactly which files each `model_type` needs and where to get them.
+
+The **next arboOCR release** adds model auto-download: missing models get
+fetched into a local cache and SHA-256-verified on first use. This package
+already exposes the matching options (see
+[Model auto-download](#model-auto-download)), but they only do anything once
+you're running a binary from that release — `v0.2.0` rejects the underlying
+flags outright. This README will lose the "next release" hedging when the
+pinned version moves.
 
 ## Models
 
@@ -46,8 +55,9 @@ You only need the recognizer size(s) you'll actually use — e.g. for
 later is just changing `model_type`; `models_dir` can hold all three sizes
 side by side if you want to switch freely.
 
-**Getting the files** — arboOCR doesn't host default download URLs (see its
-own [Models section](https://github.com/wafik/ArboOCR#models)), so pick
+**Getting the files** — with the pinned `v0.2.0` binary you have to supply
+them yourself (it hosts no default download URLs — see arboOCR's own
+[Models section](https://github.com/wafik/ArboOCR#models)), so pick
 whichever applies:
 - Already have a Python `rapidocr` install? Copy its `models/` directory
   over, renaming files to match the layout above.
@@ -55,6 +65,71 @@ whichever applies:
 - A local arboOCR checkout's `models/` directory already has the detector,
   classifier, and all three recognizer sizes — handy for local dev (see the
   tiny-model example below).
+- From the **next arboOCR release** onward you can skip all of the above and
+  let the binary fetch what's missing — see
+  [Model auto-download](#model-auto-download).
+
+### Model auto-download
+
+> **Requires the next arboOCR release.** The pinned `v0.2.0` binary this
+> package installs today has no auto-download and does not accept
+> `--no-download`, `--models-url`, or `--download-models` — passing any of
+> them makes it exit `1` with a usage error. Everything in this section
+> applies once you point `bin_path` at a newer build, or once this package's
+> pin moves to the release that ships it.
+
+That release resolves each model file in a fixed order, per file:
+
+1. An explicit path (`det_model_path` / `cls_model_path` / `rec_model_path` /
+   `dict_path`) is used as given and is **never** substituted by a download.
+2. Otherwise a file already present in `models_dir` wins — zero network.
+3. Only then is it downloaded and SHA-256-verified into the model cache.
+
+So an existing offline setup keeps behaving exactly as it does now; the
+download only fills genuine gaps.
+
+**Options**
+
+```python
+# Fail loudly instead of reaching for the network — good for air-gapped
+# or reproducible-build environments.
+engine = Engine(models_dir="/path/to/models", no_download=True)
+
+# Fetch anything missing from an internal mirror instead of the default host.
+engine = Engine(models_url="https://mirror.internal/arboocr/models/")
+```
+
+**Prefetching** — pull the models down ahead of time (a Docker build layer,
+a CI warm-up step) so the first `recognize()` call does no network I/O:
+
+```python
+from arbo_ocr.installer import download_models
+
+download_models(ocr_version="PP-OCRv6", model_type="small")
+```
+
+It shells out to `arboocr_demo --download-models`, which downloads, verifies,
+and exits without running OCR; it raises `RuntimeError` on a non-zero exit.
+Every argument is optional (`ocr_version`, `model_type`, `models_url`,
+`bin_path`) and unset ones emit no flag, leaving arboOCR's defaults in charge.
+
+**Environment variables** — read by the `arboocr_demo` child process, which
+inherits the parent Python process's environment:
+
+| Variable | Effect |
+|---|---|
+| `ARBOOCR_OFFLINE=1` | never download; same as `no_download=True` |
+| `ARBOOCR_CACHE_DIR` | override the model cache directory |
+| `ARBOOCR_MODELS_URL` | default directory URL to fetch from; same as `models_url` |
+
+**Cache directory** — tag-scoped, so a future model-set revision lands beside
+the current one instead of overwriting it:
+
+| OS | Path |
+|---|---|
+| Windows | `%LOCALAPPDATA%\arboOCR\models\models-v1` |
+| macOS | `~/Library/Caches/arboOCR/models/models-v1` |
+| Linux | `$XDG_CACHE_HOME/arboOCR/models/models-v1`, else `~/.cache/arboOCR/models/models-v1` |
 
 ## Usage
 
@@ -99,6 +174,13 @@ Anything not listed is ignored rather than passed through.
 | `det_limit_side_len` | int | `--det-limit-side-len` | *v0.2.0* — longest image side for detection resize (default 960) |
 | `word_boxes` | bool | `--word-boxes` | *v0.2.0* — also populate `line.words` |
 | `log_level` | str | `--log-level` | *v0.2.0* — `debug` / `info` / `warn` / `error`; the binary is silent on stderr without it |
+| `no_download` | bool | `--no-download` | *next arboOCR release* — never fetch missing models; fail instead |
+| `models_url` | str | `--models-url` | *next arboOCR release* — directory URL to fetch missing models from (e.g. an internal mirror) |
+
+An option you don't pass emits no flag at all, so the two *next arboOCR
+release* rows above are inert — and safe — on the pinned `v0.2.0` binary.
+Passing one to `v0.2.0` is not: it exits `1` with a usage error. See
+[Model auto-download](#model-auto-download).
 
 #### Word boxes
 
