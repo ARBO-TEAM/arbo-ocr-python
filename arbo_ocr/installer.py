@@ -23,6 +23,15 @@ from typing import Optional
 # `arbo-ocr-install` path actually needs them.
 
 REPO = "wafik/ArboOCR"
+# TODO: bump this to the arboOCR release that adds model auto-download once
+# it ships (it is unreleased as of this commit — v0.2.0 predates the
+# feature). Until then, every binary this package installs rejects
+# --no-download / --models-url / --download-models with exit code 1, so the
+# `no_download` / `models_url` Engine options and download_models() below
+# only work for callers pointing bin_path at their own newer build. When you
+# bump it, also drop the "requires the next arboOCR release" caveats from
+# README.md's options table and its Model auto-download section, and from
+# the docstrings here and in engine.py.
 PINNED_VERSION = "v0.2.0"
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -73,6 +82,61 @@ def ensure_installed(platform_name: Optional[str] = None) -> Path:
         bin_path.chmod(0o755)
 
     return bin_path
+
+
+def download_models(
+    *,
+    ocr_version: Optional[str] = None,
+    model_type: Optional[str] = None,
+    models_url: Optional[str] = None,
+    bin_path: Optional[str] = None,
+) -> None:
+    """Prefetches the OCR models for `ocr_version`/`model_type` into arboOCR's
+    own tag-scoped model cache, by shelling out to `arboocr_demo
+    --download-models` — which downloads, SHA-256-verifies, and exits without
+    running OCR. Handy in a Docker build or CI step so the first
+    `Engine.recognize()` call does no network I/O.
+
+    Deliberately thin: arboOCR itself owns the cache layout, the URLs, and the
+    hash verification, so this is a subprocess call and an exit-code check,
+    not a download manager. Unset arguments emit no flag at all, leaving the
+    binary's own defaults in charge.
+
+    Requires an `arboocr_demo` from the arboOCR release that adds model
+    auto-download. PINNED_VERSION predates it and will exit 1 with a usage
+    error — pass `bin_path` to point at a newer build until the pin moves.
+
+    Raises RuntimeError on any non-zero exit, with the binary's stderr
+    attached (it is silent on stderr unless it got --log-level, so that text
+    may well be empty — trust the code, not the emptiness).
+    """
+    import subprocess
+
+    if bin_path is None:
+        command = [str(default_bin_path())]
+    elif isinstance(bin_path, (list, tuple)):
+        command = list(bin_path)
+    else:
+        command = [bin_path]
+
+    argv = [*command, "--download-models"]
+    for flag, value in (
+        ("--ocr-version", ocr_version),
+        ("--model-type", model_type),
+        ("--models-url", models_url),
+    ):
+        if value is not None:
+            argv += [flag, str(value)]
+
+    result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"arboocr_demo --download-models exited with code {result.returncode}. "
+            "Note that arboOCR releases up to and including "
+            f"{PINNED_VERSION} do not support --download-models and report "
+            f"that as exit code 1.\n{result.stderr}"
+        )
 
 
 def download_and_extract(url: str, target_dir: Path, asset_name: str) -> None:

@@ -10,7 +10,10 @@ top-level directory.
 from __future__ import annotations
 
 import io
+import subprocess
 import tarfile
+
+import pytest
 
 from arbo_ocr import installer
 
@@ -49,3 +52,68 @@ def test_download_and_extract_handles_tar_gz_without_network_access(tmp_path):
     license_path = target_dir / "LICENSE"
     assert license_path.is_file()
     assert license_path.read_bytes() == license_contents
+
+
+class _FakeCompletedProcess:
+    def __init__(self, returncode: int = 0) -> None:
+        self.returncode = returncode
+        self.stdout = ""
+        self.stderr = "simulated stderr"
+
+
+def _capture_argv(monkeypatch, returncode: int = 0) -> dict:
+    """Intercepts the subprocess.run() call download_models() makes, so the
+    emitted argv can be asserted on without a real arboocr_demo — the same
+    thing test_engine.py checks via Engine._flags_from_options()."""
+    captured: dict = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return _FakeCompletedProcess(returncode)
+
+    # download_models() imports subprocess lazily inside the function body,
+    # so patching the module attribute here still takes effect at call time.
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return captured
+
+
+def test_download_models_emits_download_models_flag_and_set_options(monkeypatch):
+    captured = _capture_argv(monkeypatch)
+
+    installer.download_models(
+        ocr_version="PP-OCRv6",
+        model_type="tiny",
+        models_url="https://mirror.internal/arboocr/models/",
+        bin_path="/fake/arboocr_demo",
+    )
+
+    assert captured["argv"] == [
+        "/fake/arboocr_demo",
+        "--download-models",
+        "--ocr-version",
+        "PP-OCRv6",
+        "--model-type",
+        "tiny",
+        "--models-url",
+        "https://mirror.internal/arboocr/models/",
+    ]
+
+
+def test_download_models_omits_unset_options(monkeypatch):
+    # Unset arguments must not turn into empty-valued flags; arboOCR's own
+    # defaults stay in charge.
+    captured = _capture_argv(monkeypatch)
+
+    installer.download_models(bin_path="/fake/arboocr_demo")
+
+    assert captured["argv"] == ["/fake/arboocr_demo", "--download-models"]
+
+
+def test_download_models_raises_on_nonzero_exit(monkeypatch):
+    # Exit code 1 is exactly what an arboOCR release predating model
+    # auto-download reports for the unknown --download-models flag, so the
+    # error message has to point at that possibility.
+    _capture_argv(monkeypatch, returncode=1)
+
+    with pytest.raises(RuntimeError, match="--download-models"):
+        installer.download_models(bin_path="/fake/arboocr_demo")
