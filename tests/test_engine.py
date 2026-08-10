@@ -181,14 +181,14 @@ def test_words_defaults_to_empty_when_not_requested():
 
 
 def test_model_download_options_emit_nothing_when_omitted():
-    # THE regression test for everyone currently on installer.PINNED_VERSION.
-    # That binary predates arboOCR's model auto-download and rejects an
-    # unknown flag with exit code 1 (usage error), so adding the
-    # `no_download` / `models_url` options must not change a single token of
-    # the command line for callers who don't ask for them. Asserting on the
-    # whole flag list, not just membership, is the point here — a default of
-    # e.g. no_download=False in Engine.__init__ would still emit
-    # "--no-download=false" and break every v0.2.0 user.
+    # THE regression test for anyone pointing bin_path at a binary older
+    # than installer.PINNED_VERSION. Such a binary predates arboOCR's model
+    # auto-download and rejects an unknown flag with exit code 1 (usage
+    # error), so the `no_download` / `models_url` options must not change a
+    # single token of the command line for callers who don't ask for them.
+    # Asserting on the whole flag list, not just membership, is the point
+    # here — a default of e.g. no_download=False in Engine.__init__ would
+    # still emit "--no-download=false" and break every pre-v0.3.0 user.
     engine = Engine(bin_path=fake_bin(), models_dir="models", model_type="tiny")
 
     flags = engine._flags_from_options()

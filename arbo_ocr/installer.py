@@ -23,16 +23,12 @@ from typing import Optional
 # `arbo-ocr-install` path actually needs them.
 
 REPO = "wafik/ArboOCR"
-# TODO: bump this to the arboOCR release that adds model auto-download once
-# it ships (it is unreleased as of this commit — v0.2.0 predates the
-# feature). Until then, every binary this package installs rejects
-# --no-download / --models-url / --download-models with exit code 1, so the
+# v0.3.0 is the first release with model auto-download, so the
 # `no_download` / `models_url` Engine options and download_models() below
-# only work for callers pointing bin_path at their own newer build. When you
-# bump it, also drop the "requires the next arboOCR release" caveats from
-# README.md's options table and its Model auto-download section, and from
-# the docstrings here and in engine.py.
-PINNED_VERSION = "v0.2.0"
+# all work against the binary this package installs. It also ships
+# onnxruntime_providers_shared, missing from earlier archives, without which
+# --cuda / --tensorrt could not load from a release build.
+PINNED_VERSION = "v0.3.0"
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -102,9 +98,9 @@ def download_models(
     not a download manager. Unset arguments emit no flag at all, leaving the
     binary's own defaults in charge.
 
-    Requires an `arboocr_demo` from the arboOCR release that adds model
-    auto-download. PINNED_VERSION predates it and will exit 1 with a usage
-    error — pass `bin_path` to point at a newer build until the pin moves.
+    Requires an `arboocr_demo` from arboOCR v0.3.0 or newer, which is what
+    PINNED_VERSION installs. An older binary passed via `bin_path` predates
+    the flag and will exit 1 with a usage error.
 
     Raises RuntimeError on any non-zero exit, with the binary's stderr
     attached (it is silent on stderr unless it got --log-level, so that text
@@ -133,7 +129,7 @@ def download_models(
     if result.returncode != 0:
         raise RuntimeError(
             f"arboocr_demo --download-models exited with code {result.returncode}. "
-            "Note that arboOCR releases up to and including "
+            "Note that arboOCR releases older than "
             f"{PINNED_VERSION} do not support --download-models and report "
             f"that as exit code 1.\n{result.stderr}"
         )
