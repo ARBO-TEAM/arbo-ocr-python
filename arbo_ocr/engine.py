@@ -25,11 +25,10 @@ _STRING_FLAGS = {
     # "debug" | "info" | "warn" | "error" (arboocr_demo rejects anything
     # else with exit code 1).
     "log_level": "log-level",
-    # Needs the arboOCR release that adds model auto-download — NOT the
-    # currently pinned installer.PINNED_VERSION, which has no such flag and
-    # exits 1 (usage error) if it is passed. Directory URL to fetch missing
-    # models from, e.g. an internal mirror. See _BOOL_FLAGS' "no_download"
-    # note for why omitting the option must stay a no-op.
+    # arboOCR v0.3.0 (model auto-download) — directory URL to fetch missing
+    # models from, e.g. an internal mirror. Older binaries have no such flag
+    # and exit 1 (usage error) if it is passed, so see _BOOL_FLAGS'
+    # "no_download" note for why omitting the option must stay a no-op.
     "models_url": "models-url",
 }
 
@@ -52,12 +51,13 @@ _BOOL_FLAGS = {
     # character for CJK) to every line in the JSON. Omitted entirely when
     # not requested, so LineResult.words is [] by default.
     "word_boxes": "word-boxes",
-    # Needs the arboOCR release that adds model auto-download; refuse to
-    # fetch missing models and fail instead. Like every other option here it
-    # is emitted only when the caller actually passes it (the `opt_key in
-    # self._options` check below) — that is load-bearing, not incidental:
-    # anyone still on installer.PINNED_VERSION has a binary that predates
-    # the flag and exits 1 with a usage error the moment it appears in argv.
+    # arboOCR v0.3.0 (model auto-download); refuse to fetch missing models
+    # and fail instead. Like every other option here it is emitted only when
+    # the caller actually passes it (the `opt_key in self._options` check
+    # below) — that is load-bearing, not incidental: anyone pointing
+    # bin_path at a binary older than installer.PINNED_VERSION has one that
+    # predates the flag and exits 1 with a usage error the moment it appears
+    # in argv.
     "no_download": "no-download",
 }
 
