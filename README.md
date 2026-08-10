@@ -16,6 +16,13 @@ installing a wheel, so this package ships an explicit console script,
 `playwright install` uses). It downloads the matching arboOCR release
 binary (Windows or Linux, auto-detected) into `arbo_ocr/bin/<platform>/`.
 
+Run it again after every `pip install --upgrade` too. The binary is fetched
+at runtime, so it is not part of the wheel and pip leaves the old one in
+place on an upgrade; `arbo-ocr-install` notices that it predates the newly
+pinned release (it records the installed tag in
+`arbo_ocr/bin/<platform>/.arboocr-version`) and replaces it. Re-running when
+nothing changed is a no-op that downloads nothing.
+
 [`v0.3.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.3.0) is the
 pinned release. If auto-download fails (offline install, unsupported OS),
 download a release manually from the

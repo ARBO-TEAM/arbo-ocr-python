@@ -1,5 +1,7 @@
 """Downloads the arboOCR release binary matching this package's pinned
 version for the host OS, and extracts it to `arbo_ocr/bin/<platform>/`.
+Re-downloads whenever the pin changes — the installed tag is recorded in a
+marker file alongside the binary, see _needs_install().
 Never raises on failure when called via the `arbo-ocr-install` console
 script's main() — arboOCR still works if the caller points Engine at a
 manually-downloaded binary via the `bin_path` option. (The lower-level
@@ -30,6 +32,11 @@ REPO = "wafik/ArboOCR"
 # --cuda / --tensorrt could not load from a release build.
 PINNED_VERSION = "v0.3.0"
 
+# Name of the file written inside bin/<platform>/ recording which release tag
+# the binary sitting next to it was extracted from. Dot-prefixed so it never
+# collides with an archive member.
+VERSION_MARKER = ".arboocr-version"
+
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
 
@@ -50,9 +57,13 @@ def default_bin_path() -> Path:
 
 def ensure_installed(platform_name: Optional[str] = None) -> Path:
     """Downloads+extracts the binary for `platform_name` (auto-detected if
-    omitted) if not already present, and returns its path. Raises
-    RuntimeError if the platform is unsupported or the download/extract
-    fails."""
+    omitted) unless PINNED_VERSION is already installed, and returns its
+    path. Raises RuntimeError if the platform is unsupported or the
+    download/extract fails.
+
+    Only ever touches `arbo_ocr/bin/<platform>/`. A binary a caller supplies
+    itself (Engine's / download_models' `bin_path`) never comes through here
+    and is used exactly as given — see _needs_install()."""
     platform_name = platform_name or detect_platform()
     if platform_name is None:
         raise RuntimeError(
@@ -64,7 +75,7 @@ def ensure_installed(platform_name: Optional[str] = None) -> Path:
     bin_name = "arboocr_demo.exe" if platform_name == "windows-x64" else "arboocr_demo"
     bin_path = target_dir / bin_name
 
-    if bin_path.is_file():
+    if not _needs_install(target_dir, bin_path):
         return bin_path
 
     asset = (
@@ -77,7 +88,69 @@ def ensure_installed(platform_name: Optional[str] = None) -> Path:
     if platform_name == "linux-x64":
         bin_path.chmod(0o755)
 
+    # Only once the new binary is actually on disk — a marker written any
+    # earlier (or on a failed download) would claim a version that isn't
+    # there, and the next run would trust it and skip the download.
+    _write_version_marker(target_dir)
+
     return bin_path
+
+
+def _needs_install(target_dir: Path, bin_path: Path) -> bool:
+    """Whether bin/<platform>/ has to be (re)populated for PINNED_VERSION.
+
+    DO NOT reduce this back to `if bin_path.is_file(): return bin_path` —
+    that was the bug. ensure_installed() used to short-circuit on "some
+    binary is there", which made bumping PINNED_VERSION a silent no-op for
+    everyone who already had one: `arbo-ocr-install` reported success, the
+    previous release's executable stayed exactly where it was, and Engine
+    carried on driving a CLI contract it no longer matched. Bumping the pin
+    to v0.3.0 that way left users on a v0.2.0 binary with no
+    --no-download / --models-url / --download-models and no
+    onnxruntime_providers_shared, i.e. with every feature this package
+    advertises silently absent. pip does not clean the directory up either:
+    the binary is fetched at runtime, so it is not in the wheel's RECORD and
+    survives an upgrade untouched (as does a source checkout, and an
+    editable install).
+
+    arbo-ocr-go and arbo-ocr-rust fixed the identical bug by putting the
+    version in the cache path (…/arbo-ocr-go/v0.3.0/windows-x64). That fits
+    them because they cache *outside* the package, where a fresh directory
+    per version costs nothing. This package's bin/ lives *inside* the
+    installed package, and default_bin_path() — hence Engine's default, the
+    README, and any script anyone wrote against it — resolves to
+    arbo_ocr/bin/<platform>/; adding a version segment would move that path
+    on every release. So this follows arbo-ocr-php instead: same directory,
+    plus a marker file recording what was installed into it.
+
+    A marker that is missing, unreadable or empty counts as a mismatch and
+    triggers a fresh download: an install made before the marker existed is
+    of unknown provenance, and assuming such an install is current is
+    precisely the failure this replaced. Re-downloading a binary that turns
+    out to have been fine costs one archive; skipping one that wasn't costs
+    silent wrong behaviour.
+    """
+    if not bin_path.is_file():
+        return True
+
+    return _installed_version(target_dir) != PINNED_VERSION
+
+
+def _installed_version(target_dir: Path) -> Optional[str]:
+    """The release tag recorded in bin/<platform>/.arboocr-version, or None
+    when there is no readable, non-empty marker — which is how an install
+    predating the marker reports "unknown version". None never equals
+    PINNED_VERSION, so it always reads as a mismatch upstream."""
+    try:
+        recorded = (target_dir / VERSION_MARKER).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    return recorded or None
+
+
+def _write_version_marker(target_dir: Path) -> None:
+    (target_dir / VERSION_MARKER).write_text(PINNED_VERSION + "\n", encoding="utf-8")
 
 
 def download_models(
@@ -159,22 +232,51 @@ def download_and_extract(url: str, target_dir: Path, asset_name: str) -> None:
             with tarfile.open(tmp_path, "r:gz") as tf:
                 tf.extractall(target_dir)  # noqa: S202 — trusted first-party release asset
 
-        _flatten_single_subdir(target_dir)
+        _flatten_archive_root(target_dir, asset_name)
     finally:
         tmp_path.unlink(missing_ok=True)
 
 
-def _flatten_single_subdir(target_dir: Path) -> None:
-    """The release archives contain one top-level folder (e.g.
-    arboocr-windows-x64/...). Move its contents up into target_dir so callers
-    get bin/<platform>/arboocr_demo directly, not
-    bin/<platform>/arboocr-windows-x64/arboocr_demo."""
-    entries = list(target_dir.iterdir())
-    if len(entries) != 1 or not entries[0].is_dir():
+def _flatten_archive_root(target_dir: Path, asset_name: str) -> None:
+    """The linux tar.gz wraps everything in one top-level folder
+    (arboocr-linux-x64/...); the windows zip is already flat. Where that
+    folder is present, move its contents up into target_dir so callers get
+    bin/<platform>/arboocr_demo directly, not
+    bin/<platform>/arboocr-linux-x64/arboocr_demo.
+
+    The folder is located by name, derived from the asset filename, rather
+    than by the old "did the extract leave exactly one entry here?" test.
+    That test silently only worked on a clean directory, so it stopped
+    firing the moment re-downloads became possible (see _needs_install):
+    unpacking over an existing install leaves the previous version's files
+    sitting beside the new folder, the entry count is no longer 1, and the
+    new binary would stay stranded one level down while the stale one keeps
+    the path Engine actually looks at — with a freshly written version
+    marker now asserting a release that is not on disk.
+    """
+    import shutil
+
+    for suffix in (".zip", ".tar.gz"):
+        if asset_name.endswith(suffix):
+            subdir = target_dir / asset_name[: -len(suffix)]
+            break
+    else:
         return
-    subdir = entries[0]
+
+    if not subdir.is_dir():
+        return
+
     for item in subdir.iterdir():
-        item.rename(target_dir / item.name)
+        dest = target_dir / item.name
+        # On a re-download dest is the previous version's file. replace(),
+        # not rename(): rename() refuses to clobber an existing file on
+        # Windows. Directories can't be clobbered either way, so clear those
+        # out first — by this point the replacement is already fully
+        # extracted, so there is nothing left to lose.
+        if dest.is_dir() and not dest.is_symlink():
+            shutil.rmtree(dest)
+        item.replace(dest)
+
     subdir.rmdir()
 
 
@@ -184,7 +286,7 @@ def main() -> None:
 
     try:
         path = ensure_installed()
-        print(f"[arbo-ocr-python] Installed arboocr_demo at {path}")
+        print(f"[arbo-ocr-python] Installed arboocr_demo ({PINNED_VERSION}) at {path}")
     except Exception as e:  # noqa: BLE001 — top-level CLI entry point, must not crash
         print(
             f"[arbo-ocr-python] Could not auto-download arboOCR binary: {e}\n"
