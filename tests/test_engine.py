@@ -22,6 +22,7 @@ from arbo_ocr.exceptions import OcrError
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "fake_arboocr.py"
 
 
+
 def fake_bin(extra_args=()) -> list[str]:
     """Array-form bin_path pointing at the fake arboocr_demo stand-in,
     invoked with the current interpreter."""
@@ -240,3 +241,61 @@ def test_model_download_options_reach_the_binary_without_erroring():
     result = engine.recognize("/some/page.jpg")
 
     assert result.backend == "cpu"
+
+
+def test_recognize_batch_parses_array_in_input_order():
+    # The fake echoes each list path back as that page's line text, so input
+    # order is observable rather than assumed.
+    engine = Engine(bin_path=fake_bin())
+
+    pages = engine.recognize_batch(["/a/one.jpg", "/b/two.jpg", "/c/three.jpg"])
+
+    assert [p.lines[0].text for p in pages] == ["/a/one.jpg", "/b/two.jpg", "/c/three.jpg"]
+    assert pages[0].image == "one.jpg"
+
+
+def test_recognize_batch_empty_input_makes_no_process():
+    # bin_path points at a non-existent file: nothing must be spawned.
+    engine = Engine(bin_path=["/nonexistent/arboocr_demo"])
+
+    assert engine.recognize_batch([]) == []
+
+
+@pytest.mark.parametrize("paths", [
+    ["/a/one.jpg", ""],
+    ["/a/one.jpg", "/b/two\n.jpg"],
+    ["/a/one.jpg", "#commented.jpg"],
+])
+def test_recognize_batch_rejects_unlistable_path(paths):
+    engine = Engine(bin_path=fake_bin())
+
+    with pytest.raises(OcrError, match=r"image_paths\[1\]"):
+        engine.recognize_batch(paths)
+
+
+def test_recognize_batch_tolerates_exit1_with_json():
+    # Exit 1 because a page came back empty is an ordinary batch outcome, not
+    # a failure — the array is still on stdout.
+    engine = Engine(bin_path=fake_bin(["--batch-exit1"]))
+
+    pages = engine.recognize_batch(["/a/one.jpg", "/b/two.jpg"])
+
+    assert len(pages) == 2
+
+
+def test_recognize_batch_usage_error_is_an_error():
+    # Exit 1 with an empty stdout is a usage error, and must not be mistaken
+    # for the tolerated empty-page exit above.
+    engine = Engine(bin_path=fake_bin(["--batch-usage-error"]))
+
+    with pytest.raises(OcrError, match="exited with code 1"):
+        engine.recognize_batch(["/a/one.jpg"])
+
+
+def test_recognize_batch_count_mismatch_is_fatal():
+    # Every check after this one is positional, so a short array has to fail
+    # here rather than shift text onto the wrong file.
+    engine = Engine(bin_path=fake_bin(["--batch-short"]))
+
+    with pytest.raises(OcrError, match="cannot match results to inputs by position"):
+        engine.recognize_batch(["/a/one.jpg", "/b/two.jpg"])

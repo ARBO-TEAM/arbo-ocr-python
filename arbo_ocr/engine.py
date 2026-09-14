@@ -5,7 +5,10 @@ downloaded (or one you point at manually via the `bin_path` option).
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +111,107 @@ class Engine:
             )
 
         return PageResult.from_json(result.stdout.strip())
+
+    def recognize_batch(self, image_paths: list[str]) -> list[PageResult]:
+        """OCR many images with **one** arboocr_demo process
+        (`--images-from <list> --json`), returning one PageResult per input in
+        input order.
+
+        recognize() starts a fresh process per image, and that process start
+        plus model load dominates a short page; this pays it once for the whole
+        list instead.
+
+        Results are matched to inputs **by position** because the binary
+        reports only a basename. That is sound only while the counts agree, so
+        a mismatch raises rather than returning a shifted list.
+
+        A batch exits 1 when *any* image came back empty. That is an ordinary
+        outcome, not a failure, and is tolerated as long as the JSON array is
+        still on stdout — a usage error exits 1 too but leaves stdout empty,
+        and that one raises.
+        """
+        if not image_paths:
+            return []
+
+        if len(self._bin_command) == 1 and not Path(self._bin_command[0]).is_file():
+            raise OcrError(
+                f"arboocr_demo binary not found at {self._bin_command[0]}. "
+                "Run 'arbo-ocr-install' or pass bin_path explicitly."
+            )
+
+        # The list file is newline-delimited, and the binary skips blank lines
+        # and '#' lines as comments. A path in either shape would be dropped
+        # silently and shift every later result onto the wrong input, so it is
+        # rejected up front rather than mis-attributed later.
+        for i, path in enumerate(image_paths):
+            if path == "":
+                raise OcrError(f"recognize_batch: image_paths[{i}] is empty")
+            if "\n" in path or "\r" in path:
+                raise OcrError(
+                    f"recognize_batch: image_paths[{i}] contains a newline, "
+                    f"which the image list format cannot represent: {path!r}"
+                )
+            if path.lstrip(" \t").startswith("#"):
+                raise OcrError(
+                    f"recognize_batch: image_paths[{i}] starts with '#', which "
+                    f"arboocr_demo reads as a comment and would skip: {path!r}"
+                )
+
+        # Same explicit encoding and same communicate()-based capture as
+        # recognize(), for the same reasons — see the notes there.
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", prefix="arbo-ocr-list-", delete=False, encoding="utf-8"
+        ) as list_file:
+            list_file.write("\n".join(image_paths) + "\n")
+            list_path = list_file.name
+        try:
+            argv = [
+                *self._bin_command,
+                "--images-from", list_path, "--json",
+                *self._flags_from_options(),
+            ]
+            result = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8")
+        finally:
+            os.unlink(list_path)
+
+        out = result.stdout.strip()
+        if result.returncode != 0 and not (
+            result.returncode == 1 and out.startswith("[")
+        ):
+            raise OcrError(
+                f"arboocr_demo exited with code {result.returncode}",
+                exit_code=result.returncode,
+                stderr=result.stderr,
+            )
+
+        try:
+            pages = json.loads(out)
+        except json.JSONDecodeError as e:
+            raise OcrError(
+                f"arboocr_demo --images-from produced unparseable output: {out[:500]!r}"
+            ) from e
+
+        if not isinstance(pages, list):
+            raise OcrError(
+                f"arboocr_demo --images-from produced unparseable output: {out[:500]!r}"
+            )
+
+        # Count first: every later check is positional, so a short or long
+        # array has to fail here rather than shift text onto the wrong file.
+        if len(pages) != len(image_paths):
+            raise OcrError(
+                f"arboocr_demo returned {len(pages)} results for "
+                f"{len(image_paths)} images; cannot match results to inputs by position"
+            )
+
+        for i, page in enumerate(pages):
+            if not isinstance(page, dict) or not isinstance(page.get("lines"), list):
+                raise OcrError(
+                    f"arboocr_demo --images-from element {i} has no 'lines' array: "
+                    f"{json.dumps(page)[:500]}"
+                )
+
+        return [PageResult.from_dict(page) for page in pages]
 
     def _flags_from_options(self) -> list[str]:
         argv: list[str] = []

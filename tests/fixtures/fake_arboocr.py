@@ -47,6 +47,38 @@ if "--word-boxes=true" in args:
     ]
 
 import os
+
+# --images-from is batch mode: one process over a newline-delimited list file,
+# one JSON array on stdout in list order. Each path is echoed back as that
+# page's line text, so tests can assert positional matching rather than
+# assume it.
+if "--images-from" in args:
+    if "--batch-usage-error" in args:
+        # What a bad flag actually does: exit 1 with no JSON on stdout, which
+        # must not be confused with the ordinary "a page came back empty"
+        # exit 1 that still carries the array.
+        print("Option '--images-from' does not exist", file=sys.stderr)
+        sys.exit(1)
+
+    with open(args[args.index("--images-from") + 1], encoding="utf-8") as fh:
+        paths = [
+            l.strip() for l in fh
+            if l.strip() and not l.strip().startswith("#")
+        ]
+    if "--batch-short" in args and paths:
+        paths.pop()
+
+    pages = [
+        {"backend": "cpu", "image": os.path.basename(p), "elapsedMs": 12.5,
+         "lines": [{"text": p, "score": 0.9, "detScore": 0.8,
+                    "polygon": [{"x": 1.0, "y": 2.0}]}]}
+        for p in paths
+    ]
+    sys.stdout.buffer.write((json.dumps(pages) + "\n").encode("utf-8"))
+    # A batch exits 1 when any image came back empty — an ordinary outcome
+    # that still carries the JSON the caller asked for.
+    sys.exit(1 if "--batch-exit1" in args else 0)
+
 payload = json.dumps({
     "backend": "cpu",
     "image": os.path.basename(image),
