@@ -25,12 +25,17 @@ from typing import Optional
 # `arbo-ocr-install` path actually needs them.
 
 REPO = "wafik/ArboOCR"
-# v0.3.0 is the first release with model auto-download, so the
-# `no_download` / `models_url` Engine options and download_models() below
-# all work against the binary this package installs. It also ships
-# onnxruntime_providers_shared, missing from earlier archives, without which
-# --cuda / --tensorrt could not load from a release build.
-PINNED_VERSION = "v0.3.0"
+# v0.3.0 added model auto-download, so the `no_download` / `models_url` Engine
+# options and download_models() below all work against the binary this package
+# installs. It also ships onnxruntime_providers_shared, missing from earlier
+# archives, without which --cuda / --tensorrt could not load from a release
+# build.
+#
+# v0.4.0 is the current pin: it adds ppu-style recognition batching plus
+# --min-det-box-area, --space-recovery and --enable-cpu-mem-arena. Everything
+# v0.3.0 provided is still present, so no flag this package emits changed
+# meaning.
+PINNED_VERSION = "v0.4.0"
 
 # Name of the file written inside bin/<platform>/ recording which release tag
 # the binary sitting next to it was extracted from. Dot-prefixed so it never

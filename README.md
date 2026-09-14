@@ -23,7 +23,7 @@ pinned release (it records the installed tag in
 `arbo_ocr/bin/<platform>/.arboocr-version`) and replaces it. Re-running when
 nothing changed is a no-op that downloads nothing.
 
-[`v0.3.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.3.0) is the
+[`v0.3.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.4.0) is the
 pinned release. If auto-download fails (offline install, unsupported OS),
 download a release manually from the
 [arboOCR releases page](https://github.com/wafik/ArboOCR/releases) and pass
@@ -72,8 +72,9 @@ would rather the first run touch no network at all:
 
 ### Model auto-download
 
-Since arboOCR `v0.3.0` — the version this package pins — missing model files
-are downloaded and SHA-256-verified automatically on first use, then cached.
+Since arboOCR `v0.3.0` — and still true of `v0.4.0`, the version this package
+pins — missing model files are downloaded and SHA-256-verified automatically
+on first use, then cached.
 No setup step, and nothing to do on a second run.
 
 arboOCR resolves each model file in a fixed order, per file:
