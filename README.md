@@ -158,6 +158,38 @@ on the auto-installed one:
 engine = Engine(bin_path="/custom/path/to/arboocr_demo", models_dir="/path/to/models")
 ```
 
+### Many images in one process — `recognize_batch`
+
+`recognize` starts a fresh `arboocr_demo` for every image, and the process
+start plus model load dominates a short page. `recognize_batch` runs **one**
+process over a whole list instead:
+
+```python
+pages = engine.recognize_batch(["/scans/001.jpg", "/scans/002.jpg", "/scans/003.jpg"])
+
+for i, page in enumerate(pages):
+    print(page.image, len(page.lines))  # pages[i] belongs to the i-th path passed in
+```
+
+Over 5 SROIE receipts the saving measured 13.0% of wall time at `tiny`, 28.5%
+at `small` and 13.6% at `medium`, with identical text on every image
+(`bench_batch_go.py` in the internal `compare/` harness). That share is
+`(process start + model load) / total`, so it moves with the model size and
+the list length rather than being a fixed percentage.
+
+Results are matched to inputs **by position**, and the count must agree —
+`arboocr_demo` reports only an image's basename, so two same-named files in
+different directories would be indistinguishable. A mismatch raises
+`OcrError` rather than returning a shifted list. For the same reason a path
+that cannot survive the newline-delimited list format (empty, containing a
+newline, or starting with `#`, which the binary reads as a comment and would
+skip) is rejected before anything runs.
+
+A batch exits `1` when *any* image came back with no text. That is an ordinary
+outcome, not a failure, and is tolerated as long as the JSON array is still on
+stdout — a usage error (unknown flag) exits `1` too but leaves stdout empty,
+and that one raises `OcrError`.
+
 ### Options
 
 Every `Engine(**options)` keyword maps to one `arboocr_demo` CLI flag.

@@ -59,10 +59,15 @@ class PageResult:
                 f"arboocr_demo --json produced unparseable output: {raw[:500]!r}"
             )
 
-        lines = [LineResult.from_dict(line) for line in data["lines"]]
+        return PageResult.from_dict(data)
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "PageResult":
+        """Build from one already-decoded page object — the element shape of
+        `--images-from`'s JSON array. Assumes the shape from_json validates."""
         return PageResult(
             backend=str(data.get("backend", "")),
             image=str(data.get("image", "")),
             elapsed_ms=float(data.get("elapsedMs", 0.0)),
-            lines=lines,
+            lines=[LineResult.from_dict(line) for line in data["lines"]],
         )
