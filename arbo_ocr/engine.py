@@ -42,6 +42,13 @@ _NUMERIC_FLAGS = {
     "min_confidence": "min-confidence",  # float — drop lines below this score, 0 disables
     "rec_batch_num": "rec-batch-num",  # int — crops per recognition inference call
     "det_limit_side_len": "det-limit-side-len",  # int — longest image side for detection resize
+    # arboOCR v0.4.0 — drop detection boxes at or below this area in
+    # detector-input pixels, 0 disables the cut. It rides this map rather than
+    # the bool one for the usual reason, and 0 is a real value rather than a
+    # stand-in for unset: the "opt_key in self._options" rule is what
+    # distinguishes "passed 0" from "not passed", and an explicit 0 reaches
+    # the binary as "--min-det-box-area 0".
+    "min_det_box_area": "min-det-box-area",
 }
 
 _BOOL_FLAGS = {
@@ -62,6 +69,16 @@ _BOOL_FLAGS = {
     # predates the flag and exits 1 with a usage error the moment it appears
     # in argv.
     "no_download": "no-download",
+}
+
+# arboOCR v0.4.0, and deliberately NOT part of _BOOL_FLAGS above: these emit a
+# single "--flag=true" token only when true, and nothing at all for False or
+# unset. False is the binary's own default, and it is the token a pre-v0.4.0
+# binary rejects outright — so an explicit False has to be indistinguishable
+# from never mentioning the option, exactly as no_download's note describes.
+_V040_BOOL_FLAGS = {
+    "space_recovery": "space-recovery",  # recover inter-word spaces CTC decode swallows
+    "enable_cpu_mem_arena": "enable-cpu-mem-arena",  # ORT CPU arena on: faster, more RSS
 }
 
 
@@ -227,4 +244,13 @@ class Engine:
                 # against the real arboocr_demo binary).
                 value = "true" if self._options[opt_key] else "false"
                 argv.append(f"--{cli_flag}={value}")
+        # The two v0.4.0 booleans are opt-in only, so they deliberately do NOT
+        # ride _BOOL_FLAGS above: that loop emits "--flag=false" for an
+        # explicit False, and a binary older than v0.4.0 answers that with a
+        # usage error and exit 1. False is already the binary's own default, so
+        # restating it costs a broken run and buys nothing. Same single-token
+        # "=" form as the loop above when they are emitted.
+        for opt_key, cli_flag in _V040_BOOL_FLAGS.items():
+            if self._options.get(opt_key):
+                argv.append(f"--{cli_flag}=true")
         return argv

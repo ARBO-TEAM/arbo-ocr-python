@@ -228,6 +228,48 @@ def test_models_url_maps_to_cli_flag():
     assert flags[flags.index("--models-url") + 1] == url
 
 
+def test_v040_flags_map_to_cli_flags():
+    # arboOCR v0.4.0. min_det_box_area is a value-taking option, so the
+    # "--flag" / "<value>" token-pair form like the v0.2.0 accuracy flags; the
+    # two booleans are cxxopts bools, so the single-token "=" form.
+    engine = Engine(
+        bin_path=fake_bin(),
+        min_det_box_area=12.5,
+        space_recovery=True,
+        enable_cpu_mem_arena=True,
+    )
+
+    flags = engine._flags_from_options()
+
+    assert "--min-det-box-area" in flags
+    assert flags[flags.index("--min-det-box-area") + 1] == "12.5"
+    assert "--space-recovery=true" in flags
+    assert "--enable-cpu-mem-arena=true" in flags
+    for bare in ("--space-recovery", "--enable-cpu-mem-arena"):
+        assert bare not in flags, f"{bare} must not appear as a bare token"
+
+
+def test_min_det_box_area_zero_is_a_real_value():
+    # 0 disables the box-area cut, so it has to reach the binary. This is why
+    # the option rides _NUMERIC_FLAGS (keyed on presence) rather than any
+    # "non-zero means set" rule, and why an explicit 0 is not treated as unset.
+    flags = Engine(bin_path=fake_bin(), min_det_box_area=0)._flags_from_options()
+
+    assert "--min-det-box-area" in flags
+    assert flags[flags.index("--min-det-box-area") + 1] == "0"
+
+
+def test_v040_bools_emit_nothing_when_false_or_unset():
+    # The load-bearing difference from every older bool: false is the binary's
+    # own default AND the token a pre-v0.4.0 binary rejects, so an explicit
+    # False must be byte-identical to never mentioning the option. Asserting on
+    # the whole list, not just membership, is the point — a "--flag=false"
+    # would break every caller pointing bin_path at an older release.
+    assert Engine(
+        bin_path=fake_bin(), space_recovery=False, enable_cpu_mem_arena=False
+    )._flags_from_options() == []
+
+
 def test_model_download_options_reach_the_binary_without_erroring():
     # Mirrors test_flags_from_options_map_to_cli_flags: the fake binary only
     # reads --image, so this just confirms the new flags are well-formed

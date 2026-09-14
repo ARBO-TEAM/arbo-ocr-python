@@ -23,7 +23,7 @@ pinned release (it records the installed tag in
 `arbo_ocr/bin/<platform>/.arboocr-version`) and replaces it. Re-running when
 nothing changed is a no-op that downloads nothing.
 
-[`v0.3.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.4.0) is the
+[`v0.4.0`](https://github.com/wafik/ArboOCR/releases/tag/v0.4.0) is the
 pinned release. If auto-download fails (offline install, unsupported OS),
 download a release manually from the
 [arboOCR releases page](https://github.com/wafik/ArboOCR/releases) and pass
@@ -216,10 +216,19 @@ Anything not listed is ignored rather than passed through.
 | `log_level` | str | `--log-level` | *v0.2.0* — `debug` / `info` / `warn` / `error`; the binary is silent on stderr without it |
 | `no_download` | bool | `--no-download` | *v0.3.0* — never fetch missing models; fail instead |
 | `models_url` | str | `--models-url` | *v0.3.0* — directory URL to fetch missing models from (e.g. an internal mirror) |
+| `min_det_box_area` | float | `--min-det-box-area` | *v0.4.0* — drop detection boxes at or below this area in detector-input pixels; `0` disables the cut (default 20) |
+| `space_recovery` | bool | `--space-recovery` | *v0.4.0* — recover the inter-word spaces a greedy CTC decode swallows |
+| `enable_cpu_mem_arena` | bool | `--enable-cpu-mem-arena` | *v0.4.0* — leave ONNXRuntime's CPU memory arena on: faster, higher RSS |
 
 An option you don't pass emits no flag at all, which is what keeps the
 `v0.3.0` rows above safe if you have pointed `bin_path` at an older binary
-of your own. Passing one to a pre-`v0.3.0` build is not safe: it exits `1`
+of your own. The three `v0.4.0` rows are the same deal one release later:
+each is emitted **only** when you pass it, so such a binary never sees a flag
+it would reject. `min_det_box_area=0` is a real setting rather than a stand-in
+for "unset", so it does reach the binary. The two booleans are the stricter
+case — `False` is the binary's own default, so `space_recovery=False` and
+omitting it both put *nothing* on the command line; restating a default would
+buy nothing and would break a pre-`v0.4.0` build. Passing one to a pre-`v0.3.0` build is not safe: it exits `1`
 with a usage error. See [Model auto-download](#model-auto-download).
 
 #### GPU
@@ -287,24 +296,43 @@ caches them itself on first use (see
 
 ## Benchmark
 
-`arbo-ocr-python` was compared against arbo-ocr-php, arbo-ocr-go, and
-arbo-ocr-rust on a 40-image SROIE sample — all four call the identical
-`arboocr_demo` binary, so accuracy is the same across all four; this
-measures wrapper overhead only (subprocess spawn − arboocr_demo's own
-reported time):
+`arbo-ocr-python` was benchmarked against the other five arbo wrapper arms
+— `arbo-cpp`, `arbo-php`, `arbo-go`, `arbo-rust`, `arbo-js` — on a 40-image
+SROIE sample. All six drive the **same pinned `arboocr_demo` v0.4.0
+binary**, so accuracy is identical across the arms by construction and the
+only thing left to compare is each wrapper's own per-call cost:
 
-| Size | arbo-php | arbo-go | arbo-rust | arbo-python |
-|--------|----------:|---------:|-----------:|-------------:|
-| tiny | 192 ms | 138 ms | 131 ms | 203 ms |
-| small | 234 ms | 184 ms | 174 ms | 249 ms |
-| medium | 302 ms | 253 ms | 245 ms | 321 ms |
+| Arm | tiny | small | medium |
+|-----|-----:|------:|-------:|
+| arbo-cpp (raw binary, no wrapper) | 322 / 179 | 662 / 478 | 1825 / 1578 |
+| arbo-php | 358 / 169 | 718 / 487 | 1875 / 1569 |
+| arbo-go | 302 / 167 | 753 / 544 | 1877 / 1619 |
+| arbo-rust | 300 / 167 | 657 / 481 | 1866 / 1613 |
+| arbo-python | 381 / 171 | 744 / 492 | 2006 / 1663 |
+| arbo-js | 427 / 220 | 744 / 515 | 1948 / 1645 |
 
-Same accuracy across all four (83.7/85.3/85.5% tiny/small/medium). Go and
-Rust track each other closely (both compiled, no interpreter startup);
-PHP and Python both pay their interpreter's own startup cost on top of the
-same `arboocr_demo` spawn, landing in the same ballpark as each other
-(Python's is slightly higher — its `import arbo_ocr` pulls in a few more
-stdlib modules than PHP's autoloader touches per call).
+Average wall ms / engine ms per image; `engine ms` is `arboocr_demo`'s own
+reported inference time, and the `arbo-cpp` row is the raw binary with no
+wrapper process in between — the floor the wrappers sit on. Accuracy is
+the same across all six arms (84.6 / 86.1 / 86.3% at tiny/small/medium).
+What the table does *not* support is a ranking of the wrappers: on this run
+the raw-binary row is slower than both compiled wrappers at `tiny`, and the
+`arbo-go` arm picked up a slow tail on a few `small` images (`engine ms`
+544 for it against 478–515 for the other five arms, on the same binary and
+the same images). An earlier round of this comparison ranked them — Go and
+Rust tied, with PHP and Python both paying their interpreter's startup on
+top of the same `arboocr_demo` spawn — but each package then installed its
+own arboOCR release, so that spread was engine-version drift between arms,
+not wrapper overhead.
+
+Absolute milliseconds come from one session on one machine; thermal state
+and background load move every row, so these figures are comparable within
+this table only — never against another session's numbers.
+
+Measured by the internal `compare/` harness (`bench_wrappers.py`, one
+process per image, each calling the pinned binary once) in its 2026-09-14
+run; raw results in `out/bench_wrappers_n40.json`. The harness and its
+output are not published in this repo.
 
 Two real issues surfaced by this benchmark, both fixed:
 - **UTF-8 decode crash**: `subprocess.run(text=True)` with no explicit
